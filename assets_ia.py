@@ -1,4 +1,6 @@
 
+import datetime
+
 import requests
 import pandas as pd
 import plotnine
@@ -101,8 +103,10 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
         
         # El commit puede fallar si no hay cambios, por eso capturamos el error
         try:
-            subprocess.run(["git", "commit", "-m", "Actualización automática del gráfico"], check=True)
-            subprocess.run(["git", "push", "origin", "practica-calidad-checks"], check=True) # Asegúrate que tu rama es 'main'
+            import datetime
+            msg = f"Update automatizado - {datetime.datetime.now().strftime('%H:%M:%S')}"
+            subprocess.run(["git", "commit", "-m", msg], check=True)
+            subprocess.run(["git", "push", "origin", "main"], check=True) # Asegúrate que tu rama es 'main'
             context.log.info("¡Subida a GitHub completada con éxito!")
         except subprocess.CalledProcessError:
             context.log.info("No había cambios nuevos para subir.")
