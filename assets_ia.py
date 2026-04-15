@@ -1,6 +1,4 @@
-
 import datetime
-
 import requests
 import pandas as pd
 import plotnine
@@ -66,12 +64,9 @@ def codigo_generado_ia(template_ia):
     
     codigo = response.json()['choices'][0]['message']['content']
     
-    # --- NUEVA LIMPIEZA ROBUSTA ---
-    # Si la IA escribe texto antes del código, buscamos dónde empieza la función
     if "def generar_plot" in codigo:
         codigo = codigo[codigo.find("def generar_plot"):]
     
-    # Limpiamos marcas de Markdown
     codigo_limpio = codigo.replace("```python", "").replace("```", "").strip()
     return codigo_limpio
 
@@ -97,19 +92,31 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
         context.log.info(f"Imagen guardada en: {ruta_archivo}")
 
         # 4. AUTOMATIZACIÓN DE GIT (Punto 7 del PDF)
+        # --- AUTOMATIZACIÓN DE GIT PRO ---
         import subprocess
-        # Añadimos todo, hacemos commit y push
-        subprocess.run(["git", "add", "."], check=True)
-        
-        # El commit puede fallar si no hay cambios, por eso capturamos el error
+        import datetime
+
         try:
-            import datetime
-            msg = f"Update automatizado - {datetime.datetime.now().strftime('%H:%M:%S')}"
+            # 1. Sincronizar con la web por si acaso (evita el error de 'rejected')
+            subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+            
+            # 2. Añadir todos los cambios
+            subprocess.run(["git", "add", "."], check=True)
+            
+            # 3. Crear el commit con la hora para que siempre sea distinto
+            ahora = datetime.datetime.now().strftime("%H:%M:%S")
+            msg = f"Update automatizado - {ahora}"
+            
+            # Intentamos el commit (si no hay cambios, pasará al except)
             subprocess.run(["git", "commit", "-m", msg], check=True)
-            subprocess.run(["git", "push", "origin", "main"], check=True) # Asegúrate que tu rama es 'main'
-            context.log.info("¡Subida a GitHub completada con éxito!")
-        except subprocess.CalledProcessError:
-            context.log.info("No había cambios nuevos para subir.")
+            
+            # 4. Subir a GitHub
+            subprocess.run(["git", "push", "origin", "main"], check=True)
+            context.log.info(f"¡Imagen subida con éxito a las {ahora}!")
+
+        except subprocess.CalledProcessError as e:
+            # Si falla porque no hay cambios, no es un error real, solo informamos
+            context.log.info("No se detectaron cambios nuevos o la sincronización falló silenciosamente.")
 
         # 5. El RETURN debe ir AL FINAL de todo
         return Output(
@@ -124,6 +131,60 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
         context.log.error(f"Error en el proceso: {e}")
         raise e
 
+#----------------------------------------
+
+@asset
+def mapa_renta_municipios_final():
+    # 1. Load CSV and format the code to 5 digits (e.g., "35001")
+    df = pd.read_csv("datos_2023.csv")
+    df['TERRITORIO_CODE'] = (
+        df['TERRITORIO_CODE']
+        .astype(str)
+        .str.split('.').str[0]
+        .str.strip()
+        .str.zfill(5)
+    )
+
+    # 2. Load the GeoJSON
+    # Note: Ensure the filename is correct (removed the double .json.json)
+    gdf = gpd.read_file("mapa_geo.json")
+    
+    # 3. Use 'codigo' from the properties, NOT 'id'
+    columna_geo = 'geocode' 
+    
+    if columna_geo not in gdf.columns:
+        # Debugging helper: if it fails, this tells you what columns actually exist
+        raise ValueError(f"Column '{columna_geo}' not found. Available: {gdf.columns.tolist()}")
+
+    gdf[columna_geo] = (
+        gdf[columna_geo]
+        .astype(str)
+        .str.strip()
+        .str.zfill(5)
+    )
+
+    # 4. Merge
+    mapa_data = gdf.merge(df, left_on=columna_geo, right_on="TERRITORIO_CODE", how='inner')
+
+    print(f"DEBUG: Se han unido {len(mapa_data)} municipios correctamente.")
+
+    # 5. Plot
+    plot = (
+        ggplot(mapa_data)
+        + geom_map(aes(fill='OBS_VALUE'))
+        + scale_fill_cmap(cmap_name='YlGnBu') 
+        + theme_void() 
+        + labs(
+            title="Sueldos y Salarios por Municipio",
+            subtitle="Canarias - 2023",
+            fill="Euros"
+        )
+    )
+
+    ruta_salida = "mapa_canarias_final.png"
+    plot.save(ruta_salida, width=12, height=8, dpi=150)
+    
+    return ruta_salida
 
 # --- CHECKS ---
 
