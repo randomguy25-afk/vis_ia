@@ -5,6 +5,8 @@ import plotnine
 from dagster import asset, Output, MetadataValue, AssetCheckResult, asset_check
 import geopandas as gpd
 from plotnine import ggplot, aes, geom_map, scale_fill_cmap, theme_void, labs
+import subprocess
+import os
 @asset
 def islas_raw():
     """Carga el conjunto de datos de renta de Canarias"""
@@ -73,33 +75,39 @@ def codigo_generado_ia(template_ia):
 
 @asset
 def visualizacion_png(context, codigo_generado_ia, islas_raw):
-    # Preparamos el entorno con las librerías necesarias
-    entorno_ejecucion = globals().copy()
-    entorno_ejecucion['pd'] = pd
-    entorno_ejecucion.update({
-        k: v for k, v in plotnine.__dict__.items() if not k.startswith('_')
-    })
+    # 1. Preparar el entorno para ejecutar el código de la IA
+    import plotnine
+    entorno_ejecucion = {
+        'pd': pd,
+        'plt': plotnine,
+        'islas_raw': islas_raw
+    }
+    entorno_ejecucion.update({k: v for k, v in plotnine.__dict__.items() if not k.startswith('_')})
 
     try:
-        # Ejecutamos el código generado por la IA
+        # 2. Ejecutar el código generado por la IA
         exec(codigo_generado_ia, entorno_ejecucion)
-        
-        # Llamamos a la función que la IA definió
         grafico = entorno_ejecucion['generar_plot'](islas_raw)
-        
-        ruta_archivo = "visualizacion_ia.png"
-        grafico.save(ruta_archivo, width=10, height=6, dpi=100)
-        
-        try:
-            import subprocess
-            subprocess.run(["git", "add", ruta_archivo], check=True)
-            # Usamos || true para que si no hay cambios, el pipeline no se detenga
-            subprocess.run(["git", "commit", "-m", "Actualización automática del gráfico"], check=True)
-            subprocess.run(["git", "push"], check=True)
-            context.log.info("Imagen subida a GitHub con éxito")
-        except Exception as git_error:
-            context.log.warning(f"No se pudo subir a GitHub (posiblemente sin cambios): {git_error}")
 
+        # 3. Guardar la imagen en la carpeta raíz
+        ruta_archivo = os.path.abspath("visualizacion_ia.png")
+        grafico.save(ruta_archivo, width=10, height=6, dpi=100)
+        context.log.info(f"Imagen guardada en: {ruta_archivo}")
+
+        # 4. AUTOMATIZACIÓN DE GIT (Punto 7 del PDF)
+        import subprocess
+        # Añadimos todo, hacemos commit y push
+        subprocess.run(["git", "add", "."], check=True)
+        
+        # El commit puede fallar si no hay cambios, por eso capturamos el error
+        try:
+            subprocess.run(["git", "commit", "-m", "Actualización automática del gráfico"], check=True)
+            subprocess.run(["git", "push", "origin", "main"], check=True) # Asegúrate que tu rama es 'main'
+            context.log.info("¡Subida a GitHub completada con éxito!")
+        except subprocess.CalledProcessError:
+            context.log.info("No había cambios nuevos para subir.")
+
+        # 5. El RETURN debe ir AL FINAL de todo
         return Output(
             value=ruta_archivo,
             metadata={
@@ -107,63 +115,10 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
                 "mensaje": "Gráfico generado y subido a GitHub"
             }
         )
+
     except Exception as e:
-        context.log.error(f"Error: {e}")
+        context.log.error(f"Error en el proceso: {e}")
         raise e
-        
-
-@asset
-def mapa_renta_municipios_final():
-    # 1. Load CSV and format the code to 5 digits (e.g., "35001")
-    df = pd.read_csv("datos_2023.csv")
-    df['TERRITORIO_CODE'] = (
-        df['TERRITORIO_CODE']
-        .astype(str)
-        .str.split('.').str[0]
-        .str.strip()
-        .str.zfill(5)
-    )
-
-    # 2. Load the GeoJSON
-    # Note: Ensure the filename is correct (removed the double .json.json)
-    gdf = gpd.read_file("mapa_geo.json")
-    
-    # 3. Use 'codigo' from the properties, NOT 'id'
-    columna_geo = 'geocode' 
-    
-    if columna_geo not in gdf.columns:
-        # Debugging helper: if it fails, this tells you what columns actually exist
-        raise ValueError(f"Column '{columna_geo}' not found. Available: {gdf.columns.tolist()}")
-
-    gdf[columna_geo] = (
-        gdf[columna_geo]
-        .astype(str)
-        .str.strip()
-        .str.zfill(5)
-    )
-
-    # 4. Merge
-    mapa_data = gdf.merge(df, left_on=columna_geo, right_on="TERRITORIO_CODE", how='inner')
-
-    print(f"DEBUG: Se han unido {len(mapa_data)} municipios correctamente.")
-
-    # 5. Plot
-    plot = (
-        ggplot(mapa_data)
-        + geom_map(aes(fill='OBS_VALUE'))
-        + scale_fill_cmap(cmap_name='YlGnBu') 
-        + theme_void() 
-        + labs(
-            title="Sueldos y Salarios por Municipio",
-            subtitle="Canarias - 2023",
-            fill="Euros"
-        )
-    )
-
-    ruta_salida = "mapa_canarias_final.png"
-    plot.save(ruta_salida, width=12, height=8, dpi=150)
-    
-    return ruta_salida
 
 
 # --- CHECKS ---
