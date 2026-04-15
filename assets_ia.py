@@ -98,7 +98,7 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
 
         try:
             # 1. Sincronizar con la web por si acaso (evita el error de 'rejected')
-            subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
+            # subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
             
             # 2. Añadir todos los cambios
             subprocess.run(["git", "add", "."], check=True)
