@@ -72,7 +72,6 @@ def codigo_generado_ia(template_ia):
 
 @asset
 def visualizacion_png(context, codigo_generado_ia, islas_raw):
-    # 1. Preparar el entorno para ejecutar el código de la IA
     import plotnine
     entorno_ejecucion = {
         'pd': pd,
@@ -82,43 +81,30 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
     entorno_ejecucion.update({k: v for k, v in plotnine.__dict__.items() if not k.startswith('_')})
 
     try:
-        # 2. Ejecutar el código generado por la IA
         exec(codigo_generado_ia, entorno_ejecucion)
         grafico = entorno_ejecucion['generar_plot'](islas_raw)
 
-        # 3. Guardar la imagen en la carpeta raíz
         ruta_archivo = os.path.abspath("visualizacion_ia.png")
         grafico.save(ruta_archivo, width=10, height=6, dpi=100)
         context.log.info(f"Imagen guardada en: {ruta_archivo}")
 
-        # 4. AUTOMATIZACIÓN DE GIT (Punto 7 del PDF)
-        # --- AUTOMATIZACIÓN DE GIT PRO ---
         import subprocess
         import datetime
 
         try:
-            # 1. Sincronizar con la web por si acaso (evita el error de 'rejected')
-            # subprocess.run(["git", "pull", "origin", "main", "--rebase"], check=True)
-            
-            # 2. Añadir todos los cambios
             subprocess.run(["git", "add", "."], check=True)
             
-            # 3. Crear el commit con la hora para que siempre sea distinto
             ahora = datetime.datetime.now().strftime("%H:%M:%S")
             msg = f"Update automatizado - {ahora}"
             
-            # Intentamos el commit (si no hay cambios, pasará al except)
             subprocess.run(["git", "commit", "-m", msg], check=True)
             
-            # 4. Subir a GitHub
             subprocess.run(["git", "push", "origin", "main"], check=True)
             context.log.info(f"¡Imagen subida con éxito a las {ahora}!")
 
         except subprocess.CalledProcessError as e:
-            # Si falla porque no hay cambios, no es un error real, solo informamos
             context.log.info("No se detectaron cambios nuevos o la sincronización falló silenciosamente.")
 
-        # 5. El RETURN debe ir AL FINAL de todo
         return Output(
             value=ruta_archivo,
             metadata={
@@ -131,11 +117,8 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
         context.log.error(f"Error en el proceso: {e}")
         raise e
 
-#----------------------------------------
-
 @asset
 def mapa_renta_municipios_final():
-    # 1. Load CSV and format the code to 5 digits (e.g., "35001")
     df = pd.read_csv("datos_2023.csv")
     df['TERRITORIO_CODE'] = (
         df['TERRITORIO_CODE']
@@ -145,15 +128,11 @@ def mapa_renta_municipios_final():
         .str.zfill(5)
     )
 
-    # 2. Load the GeoJSON
-    # Note: Ensure the filename is correct (removed the double .json.json)
     gdf = gpd.read_file("mapa_geo.json")
     
-    # 3. Use 'codigo' from the properties, NOT 'id'
     columna_geo = 'geocode' 
     
     if columna_geo not in gdf.columns:
-        # Debugging helper: if it fails, this tells you what columns actually exist
         raise ValueError(f"Column '{columna_geo}' not found. Available: {gdf.columns.tolist()}")
 
     gdf[columna_geo] = (
@@ -163,12 +142,10 @@ def mapa_renta_municipios_final():
         .str.zfill(5)
     )
 
-    # 4. Merge
     mapa_data = gdf.merge(df, left_on=columna_geo, right_on="TERRITORIO_CODE", how='inner')
 
     print(f"DEBUG: Se han unido {len(mapa_data)} municipios correctamente.")
 
-    # 5. Plot
     plot = (
         ggplot(mapa_data)
         + geom_map(aes(fill='OBS_VALUE'))
@@ -177,7 +154,7 @@ def mapa_renta_municipios_final():
         + labs(
             title="Sueldos y Salarios por Municipio",
             subtitle="Canarias - 2023",
-            fill="Euros"
+            fill="Porcentaje %"
         )
     )
 
