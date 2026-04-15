@@ -1,3 +1,4 @@
+from matplotlib.style import context
 import requests
 import pandas as pd
 import plotnine
@@ -89,16 +90,27 @@ def visualizacion_png(context, codigo_generado_ia, islas_raw):
         ruta_archivo = "visualizacion_ia.png"
         grafico.save(ruta_archivo, width=10, height=6, dpi=100)
         
+        try:
+            import subprocess
+            subprocess.run(["git", "add", ruta_archivo], check=True)
+            # Usamos || true para que si no hay cambios, el pipeline no se detenga
+            subprocess.run(["git", "commit", "-m", "Actualización automática del gráfico"], check=True)
+            subprocess.run(["git", "push"], check=True)
+            context.log.info("Imagen subida a GitHub con éxito")
+        except Exception as git_error:
+            context.log.warning(f"No se pudo subir a GitHub (posiblemente sin cambios): {git_error}")
+
         return Output(
             value=ruta_archivo,
             metadata={
                 "ruta": MetadataValue.path(ruta_archivo),
-                "mensaje": "Gráfico generado exitosamente por la IA"
+                "mensaje": "Gráfico generado y subido a GitHub"
             }
         )
     except Exception as e:
-        context.log.error(f"Error al renderizar el gráfico: {e}")
+        context.log.error(f"Error: {e}")
         raise e
+        
 
 @asset
 def mapa_renta_municipios_final():
@@ -152,6 +164,7 @@ def mapa_renta_municipios_final():
     plot.save(ruta_salida, width=12, height=8, dpi=150)
     
     return ruta_salida
+
 
 # --- CHECKS ---
 
